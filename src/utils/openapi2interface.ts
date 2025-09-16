@@ -212,7 +212,7 @@ function generateApiMethod(path: string, method: string, operation: any): string
 
 	const parmaMethods = ['get', 'delete'];
 	const hasPathParam = isHasPathParam(path);
-	const pathParams = hasPathParam ? path.match(reg).map(item => item.replace(reg, '$1')) : []
+	const pathParams = hasPathParam ? path.match(reg).map(item => item.replace(reg, '$1: string | number')) : []
 
 	const hasParams = operation.requestBody?.content?.['application/json']?.schema;
 	methodCode += `export const ${functionName} = async (${hasPathParam ? pathParams.join(',') : ''}${hasParams ? `params: ${requestTypeName}` : ''}) => {\n`;
