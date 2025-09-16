@@ -1,0 +1,28 @@
+{
+  "name": "apifox2interface",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "api": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup --watch",
+    "api": "node dist/index.js",
+    "api:config": "node dist/index.js config"
+  },
+  "dependencies": {
+    "apifox2interface": "link:",
+    "commander": "13.1.0",
+    "picocolors": "1.1.1",
+    "prompts": "2.4.2",
+    "typeconv": "2.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.9",
+    "tsup": "8.5.0",
+    "typescript": "5.8.3"
+  },
+  "peerDependencies": {
+    "axios": "^1.4.0"
+  }
+}
