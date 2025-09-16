@@ -229,10 +229,10 @@ function generateApiMethod(path: string, method: string, operation: any): string
 	methodCode += `		return response.data;\n`;
 
 	methodCode += `	} catch (error) {\n`;
-	methodCode += `			console.error('Error calling ${functionName}:', error);\n`;
-	methodCode += `			throw error;\n`;
-	methodCode += `		}\n`;
-	methodCode += `	}\n\n`;
+	methodCode += `		console.error('Error calling ${functionName}:', error);\n`;
+	methodCode += `		throw error;\n`;
+	methodCode += `	}\n`;
+	methodCode += `}\n\n`;
 
 	return methodCode;
 }
