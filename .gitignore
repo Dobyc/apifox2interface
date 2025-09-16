@@ -32,5 +32,6 @@ pgconfig.json
 
 .env
 a2i.config.json
+test.json
 
 services

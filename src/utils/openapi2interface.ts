@@ -1,5 +1,11 @@
 import { getOpenApiReader, getOpenApiWriter, getTypeScriptWriter, makeConverter } from 'typeconv'
 
+const reg = /{(\w+)*?}/g
+
+const isHasPathParam = (path) => {
+	return reg.test(path)
+}
+
 const convertFromTypeconv = (data) => {
 	return new Promise((resolve, reject) => {
 		const reader = getOpenApiReader();
@@ -129,6 +135,21 @@ export async function convertOpenApiToTypeScript(openapi: any) {
 	return code;
 }
 
+function convertPathToName(path) {
+	// 移除开头的斜杠
+	const cleanedPath = path.startsWith('/') ? path.slice(1) : path;
+	const parts = cleanedPath.split('/');
+
+	return parts.reduce((acc, part) => {
+		if (isHasPathParam(part)) {
+			const newPart = part.replace(reg, '$1')
+			return acc + 'By' + newPart.charAt(0).toUpperCase() + newPart.slice(1);
+		} else {
+			return acc + part.charAt(0).toUpperCase() + part.slice(1);
+		}
+	}, '')
+}
+
 /**
  * 从路径生成类型名称
  * @param path API路径
@@ -145,12 +166,12 @@ function getTypeNameFromPath(path: string, suffix: string, method: string): stri
 		patch: 'Patch',
 	};
 
-	// 移除路径中的斜杠和特殊字符，转换为驼峰命名
-	return methodMap[method.toLowerCase()] + path
-		.split('/')
-		.filter(segment => segment)
-		.map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
-		.join('') + suffix;
+	return methodMap[method.toLowerCase()] + convertPathToName(path) + suffix;
+}
+
+function convertPathParameters(path) {
+	// 正则匹配 {xxx} 格式，替换为 ${xxx}
+	return path.replace(reg, '${$1}');
 }
 
 /**
@@ -161,11 +182,7 @@ function getTypeNameFromPath(path: string, suffix: string, method: string): stri
  * @returns 生成的方法代码
  */
 function generateApiMethod(path: string, method: string, operation: any): string {
-	const functionName = method + path
-		.split('/')
-		.filter(segment => segment)
-		.map((segment, index) => segment.charAt(0).toUpperCase() + segment.slice(1))
-		.join('');
+	const functionName = method + convertPathToName(path);
 
 	const summary = operation.summary ? `* ${operation.summary}\n` : '';
 	const requestTypeName = getTypeNameFromPath(path, 'Request', method);
@@ -194,19 +211,20 @@ function generateApiMethod(path: string, method: string, operation: any): string
 	methodCode += `	*/\n`;
 
 	const parmaMethods = ['get', 'delete'];
+	const hasPathParam = isHasPathParam(path);
+	const pathParams = hasPathParam ? path.match(reg).map(item => item.replace(reg, '$1')) : []
 
 	const hasParams = operation.requestBody?.content?.['application/json']?.schema;
-	methodCode += `export const ${functionName} = async (${hasParams ? `params: ${requestTypeName}` : ''}) => {\n`;
+	methodCode += `export const ${functionName} = async (${hasPathParam ? pathParams.join(',') : ''}${hasParams ? `params: ${requestTypeName}` : ''}) => {\n`;
 	methodCode += `	try {\n`;
 	methodCode += `		const response = await axios.request<${returnType}>({\n`;
-	methodCode += `			url: '/api${path}',\n`;
+	methodCode += `			url: \`/api${convertPathParameters(path)}\`,\n`;
 	methodCode += `			method: '${method.toUpperCase()}',\n`;
 	methodCode += `			headers: {\n`;
 	methodCode += `				'Content-Type': 'application/json',\n`;
 	methodCode += `			},\n`;
 	methodCode += hasParams ? `			${[parmaMethods.includes(method.toLowerCase()) ? 'params' : 'data']}: JSON.stringify(params),\n` : '';
 	methodCode += `		});\n\n`;
-	methodCode += `		console.log('response', response);\n\n`;
 
 	methodCode += `		return response.data;\n`;
 

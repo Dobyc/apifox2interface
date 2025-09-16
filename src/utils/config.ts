@@ -63,7 +63,7 @@ export async function initConfig() {
 
     console.log("创建配置文件 a2i.config.json 完成\n");
 
-    const content = `${JSON.stringify({
+    const content = {
       ...result,
       "requestBody": {
         "scope": {
@@ -77,11 +77,11 @@ export async function initConfig() {
         "oasVersion": "3.1",
         "exportFormat": "JSON",
       }
-    }, null, 2)}`;
+    };
 
-    await fs.writeFileSync(configPath, content);
+    await fs.writeFileSync(configPath, `${JSON.stringify(content, null, 2)}`);
 
-    return result
+    return content
   } catch (error) {
     console.error(error);
     return false
