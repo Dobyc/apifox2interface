@@ -1,10 +1,16 @@
 {
   "name": "apifox2interface",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "type": "module",
   "bin": {
     "api": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsup --watch",
     "api": "node dist/index.js",
