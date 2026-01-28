@@ -60,13 +60,40 @@ export async function convertOpenApiToTypeScript(openapi: any) {
 		methods.forEach(method => {
 			const operation = openapi.paths[path][method];
 
-			// 处理请求体类型
-			if (operation.requestBody && operation.requestBody.content) {
-				const schema = operation.requestBody.content['application/json']?.schema;
-				if (schema) {
-					const typeName = getTypeNameFromPath(path, 'Request', method);
-					code += generateTypeDefinition(typeName, schema);
+			// 处理请求体类型和查询参数
+			if (operation.requestBody?.content?.['application/json']?.schema || (operation.parameters && operation.parameters.some((param: any) => param.in === 'query'))) {
+				// 构建包含查询参数和请求体参数的综合 schema
+				const combinedSchema = {
+					type: 'object',
+					properties: {},
+					required: []
+				};
+
+				// 添加请求体参数
+				if (operation.requestBody?.content?.['application/json']?.schema) {
+					const requestBodySchema = operation.requestBody.content['application/json'].schema;
+					if (requestBodySchema.properties) {
+						Object.assign(combinedSchema.properties, requestBodySchema.properties);
+					}
+					if (requestBodySchema.required) {
+						combinedSchema.required.push(...requestBodySchema.required);
+					}
 				}
+
+				// 添加查询参数
+				if (operation.parameters) {
+					operation.parameters.forEach((param: any) => {
+						if (param.in === 'query' || param.in === 'path') {
+							combinedSchema.properties[param.name] = param.schema;
+							if (param.required) {
+								combinedSchema.required.push(param.name);
+							}
+						}
+					});
+				}
+
+				const typeName = getTypeNameFromPath(path, 'Request', method);
+				code += generateTypeDefinition(typeName, combinedSchema);
 			}
 
 			// 处理响应类型
@@ -110,10 +137,12 @@ export async function convertOpenApiToTypeScript(openapi: any) {
 		methods.forEach(method => {
 			const operation = openapi.paths[path][method];
 
-			if (operation.requestBody?.content?.['application/json']?.schema) {
+			// 收集请求类型（包括查询参数和请求体参数）
+			if (operation.requestBody?.content?.['application/json']?.schema || (operation.parameters && operation.parameters.some((param: any) => param.in === 'query'))) {
 				typeNames.push(getTypeNameFromPath(path, 'Request', method));
 			}
 
+			// 收集响应类型
 			if (operation.responses) {
 				const successResponse = operation.responses['200'] || operation.responses['201'];
 				if (successResponse?.content?.['application/json']?.schema) {
@@ -217,18 +246,34 @@ function generateApiMethod(path: string, method: string, operation: any): string
 		returnType = 'BaseResponse<any>';
 	}
 
-	let methodCode = `/**\n`;
-	methodCode += `	${summary}`;
-	methodCode += `	* @param params 请求参数\n`;
-	methodCode += `	* @returns 接口响应\n`;
-	methodCode += `	*/\n`;
-
 	const parmaMethods = ['get', 'delete'];
 	const hasPathParam = isHasPathParam(path);
-	const pathParams = hasPathParam ? path.match(reg).map(item => item.replace(reg, '$1: string | number')) : []
+	const pathParams = hasPathParam ? path.match(reg).map(item => item.replace(reg, '$1: string | number')) : [];
+
+	// 处理查询参数
+	const hasQueryParams = operation.parameters && operation.parameters.some((param: any) => param.in === 'query');
+	const queryParams = operation.parameters ? operation.parameters.filter((param: any) => param.in === 'query') : [];
 
 	const hasParams = operation.requestBody?.content?.['application/json']?.schema;
-	methodCode += `export const ${functionName} = async (${hasPathParam ? pathParams.join(',') : ''}${hasParams ? `params: ${requestTypeName}` : ''}) => {\n`;
+
+	let methodCode = `/**\n`;
+	methodCode += `\t${summary}`;
+	// 只有当有参数时才添加参数说明
+	if (hasPathParam || hasQueryParams || hasParams) {
+		methodCode += `\t* @param params 请求参数\n`;
+	}
+	methodCode += `\t* @returns 接口响应\n`;
+	methodCode += `\t*/\n`;
+	// 构建函数参数列表
+	let functionParams = '';
+	if (hasPathParam) {
+		functionParams += pathParams.join(',');
+	}
+	if (hasQueryParams || hasParams) {
+		functionParams += (hasPathParam ? ',' : '') + `params: ${requestTypeName}`;
+	}
+
+	methodCode += `export const ${functionName} = async (${functionParams}) => {\n`;
 	methodCode += `	try {\n`;
 	methodCode += `		const response = await axios.request<${returnType}>({\n`;
 	methodCode += `			url: \`/api${convertPathParameters(path)}\`,\n`;
@@ -236,7 +281,12 @@ function generateApiMethod(path: string, method: string, operation: any): string
 	methodCode += `			headers: {\n`;
 	methodCode += `				'Content-Type': 'application/json',\n`;
 	methodCode += `			},\n`;
-	methodCode += hasParams ? `		${[parmaMethods.includes(method.toLowerCase()) ? 'params' : 'data']}: params,\n` : '';
+	// 处理查询参数和请求体参数
+	if (hasQueryParams && parmaMethods.includes(method.toLowerCase())) {
+		methodCode += `\t\t\t${[parmaMethods.includes(method.toLowerCase()) ? 'params' : 'data']}: params,\n`;
+	} else if (hasParams) {
+		methodCode += `\t\t\t${[parmaMethods.includes(method.toLowerCase()) ? 'params' : 'data']}: params,\n`;
+	}
 	methodCode += `		});\n\n`;
 
 	methodCode += `		return response.data;\n`;
