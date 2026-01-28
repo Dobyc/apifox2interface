@@ -257,13 +257,13 @@ function generateApiMethod(path: string, method: string, operation: any): string
 	const hasParams = operation.requestBody?.content?.['application/json']?.schema;
 
 	let methodCode = `/**\n`;
-	methodCode += `\t${summary}`;
+	methodCode += ` ${summary}`;
 	// 只有当有参数时才添加参数说明
 	if (hasPathParam || hasQueryParams || hasParams) {
-		methodCode += `\t* @param params 请求参数\n`;
+		methodCode += ` * @param params 请求参数\n`;
 	}
-	methodCode += `\t* @returns 接口响应\n`;
-	methodCode += `\t*/\n`;
+	methodCode += ` * @returns 接口响应\n`;
+	methodCode += ` */\n`;
 	// 构建函数参数列表
 	let functionParams = '';
 	if (hasPathParam) {
