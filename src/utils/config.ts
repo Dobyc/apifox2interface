@@ -49,7 +49,7 @@ export async function initConfig() {
         initial: "2024-03-28",
         validate: (value) => {
           if (!value) {
-            return "请输入apifox的access_token";
+            return "请输入apifox的version： 默认值为 2024-03-28";
           }
           return true;
         },

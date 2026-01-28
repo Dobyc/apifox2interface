@@ -143,9 +143,17 @@ function convertPathToName(path) {
 	return parts.reduce((acc, part) => {
 		if (isHasPathParam(part)) {
 			const newPart = part.replace(reg, '$1')
-			return acc + 'By' + newPart.charAt(0).toUpperCase() + newPart.slice(1);
+			// 处理连字符
+			const camelCasePart = newPart.split('-').map((word, index) =>
+				index === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1)
+			).join('');
+			return acc + 'By' + camelCasePart.charAt(0).toUpperCase() + camelCasePart.slice(1);
 		} else {
-			return acc + part.charAt(0).toUpperCase() + part.slice(1);
+			// 处理连字符
+			const camelCasePart = part.split('-').map((word, index) =>
+				index === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1)
+			).join('');
+			return acc + camelCasePart.charAt(0).toUpperCase() + camelCasePart.slice(1);
 		}
 	}, '')
 }
@@ -204,6 +212,11 @@ function generateApiMethod(path: string, method: string, operation: any): string
 		}
 	}
 
+	// 确保 returnType 不为空，默认为 BaseResponse<any>
+	if (!returnType) {
+		returnType = 'BaseResponse<any>';
+	}
+
 	let methodCode = `/**\n`;
 	methodCode += `	${summary}`;
 	methodCode += `	* @param params 请求参数\n`;
@@ -223,7 +236,7 @@ function generateApiMethod(path: string, method: string, operation: any): string
 	methodCode += `			headers: {\n`;
 	methodCode += `				'Content-Type': 'application/json',\n`;
 	methodCode += `			},\n`;
-	methodCode += hasParams ? `			${[parmaMethods.includes(method.toLowerCase()) ? 'params' : 'data']}: JSON.stringify(params),\n` : '';
+	methodCode += hasParams ? `		${[parmaMethods.includes(method.toLowerCase()) ? 'params' : 'data']}: params,\n` : '';
 	methodCode += `		});\n\n`;
 
 	methodCode += `		return response.data;\n`;
