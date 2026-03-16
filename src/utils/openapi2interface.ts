@@ -13,8 +13,10 @@ const convertFromTypeconv = (data) => {
 
 		const { convert } = makeConverter(reader, writer, {})
 		convert({ data: JSON.stringify(data) }).then(res => {
-			// 定义目标文件路径
-			resolve(res.data)
+			// 对 typeconv 生成的代码做一次清洗，移除多余的索引签名 [key: string]: any;
+			let tsCode = String(res.data);
+			tsCode = tsCode.replace(/^\s*\[key: string\]: any;\s*$/gm, '');
+			resolve(tsCode);
 		})
 	});
 }
@@ -107,6 +109,17 @@ export async function convertOpenApiToTypeScript(openapi: any) {
 							const dataSchema = schema.properties.data;
 							const typeName = getTypeNameFromPath(path, 'ResponseData', method);
 							code += generateTypeDefinition(typeName, dataSchema);
+						} else if (schema.allOf && Array.isArray(schema.allOf)) {
+							// 兼容 allOf 包裹的基础响应结构，例如 SuccessResponse + { data: ... }
+							const dataCarrier = schema.allOf.find((item: any) => item?.properties?.data);
+							if (dataCarrier?.properties?.data) {
+								const dataSchema = dataCarrier.properties.data;
+								const typeName = getTypeNameFromPath(path, 'ResponseData', method);
+								code += generateTypeDefinition(typeName, dataSchema);
+							} else {
+								const typeName = getTypeNameFromPath(path, 'Response', method);
+								code += generateTypeDefinition(typeName, schema);
+							}
 						} else {
 							const typeName = getTypeNameFromPath(path, 'Response', method);
 							code += generateTypeDefinition(typeName, schema);
@@ -148,7 +161,16 @@ export async function convertOpenApiToTypeScript(openapi: any) {
 				if (successResponse?.content?.['application/json']?.schema) {
 					const schema = successResponse.content['application/json'].schema;
 					if (schema.properties?.success && schema.properties?.code && schema.properties?.data) {
+						// 直接基础响应：success/code/data
 						typeNames.push(getTypeNameFromPath(path, 'ResponseData', method));
+					} else if (schema.allOf && Array.isArray(schema.allOf)) {
+						// allOf 组合的基础响应（如 SuccessResponse + { data: ... }）
+						const dataCarrier = schema.allOf.find((item: any) => item?.properties?.data);
+						if (dataCarrier?.properties?.data) {
+							typeNames.push(getTypeNameFromPath(path, 'ResponseData', method));
+						} else {
+							typeNames.push(getTypeNameFromPath(path, 'Response', method));
+						}
 					} else {
 						typeNames.push(getTypeNameFromPath(path, 'Response', method));
 					}
@@ -232,13 +254,27 @@ function generateApiMethod(path: string, method: string, operation: any): string
 		if (successResponse?.content?.['application/json']?.schema) {
 			const schema = successResponse.content['application/json'].schema;
 			if (schema.properties?.success && schema.properties?.code && schema.properties?.data) {
-				returnType = responseDataTypeName;
+				returnType = `BaseResponse<${responseDataTypeName}>`;
+			} else if (schema.allOf && Array.isArray(schema.allOf)) {
+				// allOf + SuccessResponse 场景，同样视为 BaseResponse<T>
+				const dataCarrier = schema.allOf.find((item: any) => item?.properties?.data);
+				if (dataCarrier?.properties?.data) {
+					returnType = `BaseResponse<${responseDataTypeName}>`;
+				} else {
+					returnType = `BaseResponse<${responseTypeName}>`;
+				}
 			} else if (schema.type === 'string') {
-				returnType = 'string';
+				returnType = 'BaseResponse<string>';
 			} else {
-				returnType = responseTypeName;
+				returnType = `BaseResponse<${responseTypeName}>`;
 			}
+		} else {
+			// 如果没有 schema，默认为 BaseResponse<any>
+			returnType = 'BaseResponse<any>';
 		}
+	} else {
+		// 如果没有响应定义，默认为 BaseResponse<any>
+		returnType = 'BaseResponse<any>';
 	}
 
 	// 确保 returnType 不为空，默认为 BaseResponse<any>
@@ -307,23 +343,28 @@ function generateApiMethod(path: string, method: string, operation: any): string
  * @returns 生成的类型定义代码
  */
 function generateTypeDefinition(typeName: string, schema: any): string {
-	let code = `interface ${typeName} {\n`;
+	// 顶层为数组时，直接生成 type 别名，例如：
+	// type GetOpenf1SessionsResponseData = Session[];
+	if (schema.type === 'array' && schema.items) {
+		const itemType = getTypeFromSchema(schema.items);
+		return `type ${typeName} = ${itemType}[];\n\n`;
+	}
 
+	// 对象且有明确属性时，使用 interface 形式
 	if (schema.type === 'object' && schema.properties) {
+		let code = `interface ${typeName} {\n`;
 		Object.entries(schema.properties).forEach(([propName, propSchema]: [string, any]) => {
 			const isRequired = schema.required?.includes(propName);
 			const propType = getTypeFromSchema(propSchema);
 			code += `  ${propName}${isRequired ? '' : '?'}: ${propType};\n`;
 		});
-	} else if (schema.type === 'array' && schema.items) {
-		const itemType = getTypeFromSchema(schema.items);
-		code += `  [index: number]: ${itemType};\n`;
-	} else if (schema.type) {
-		code += `  [key: string]: ${getTypeFromSchema(schema)};\n`;
+		code += `}\n\n`;
+		return code;
 	}
 
-	code += `}\n\n`;
-	return code;
+	// 其他情况（基础类型、Map 等）统一用 type 别名，不再添加索引签名
+	const tsType = getTypeFromSchema(schema);
+	return `type ${typeName} = ${tsType};\n\n`;
 }
 
 /**
@@ -350,7 +391,7 @@ function getTypeFromSchema(schema: any): string {
 		case 'array':
 			return `${getTypeFromSchema(schema.items)}[]`;
 		case 'object':
-			if (schema.properties) {
+			if (schema.properties && Object.keys(schema.properties).length > 0) {
 				// 生成匿名对象类型
 				let objType = '{ ';
 				Object.entries(schema.properties).forEach(([propName, propSchema], index, array) => {
@@ -362,6 +403,9 @@ function getTypeFromSchema(schema: any): string {
 				});
 				objType += ' }';
 				return objType;
+			} else if (schema.additionalProperties) {
+				// Map 场景：{ [key: string]: ValueType }
+				return `{ [key: string]: ${getTypeFromSchema(schema.additionalProperties)} }`;
 			} else {
 				return 'object';
 			}
